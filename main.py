@@ -150,8 +150,9 @@ async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction
         async with client.stream("POST", url, json=payload) as response:
             if response.status_code != 200:
                 error_body = await response.aread()
-                logger.error(f"Gemini API error {response.status_code}: {error_body.decode()}")
-                yield f"Error al consultar el modelo de Gemini: {response.status_code}"
+                err_msg = error_body.decode()
+                logger.error(f"Gemini API error {response.status_code}: {err_msg}")
+                yield f"Error al consultar el modelo de Gemini ({response.status_code}): {err_msg}"
                 return
 
             async for line in response.aiter_lines():
@@ -187,7 +188,7 @@ async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: 
         res = await client.post(url, json=payload)
         if res.status_code != 200:
             logger.error(f"Gemini error {res.status_code}: {res.text}")
-            return "Lo siento, ocurrió un problema de conexión con el modelo fundacional."
+            return f"Error de Gemini ({res.status_code}): {res.text}"
         
         data = res.json()
         try:
