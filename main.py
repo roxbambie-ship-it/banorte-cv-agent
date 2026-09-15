@@ -28,8 +28,8 @@ app.add_middleware(
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-FALLBACK_MODEL = "gemini-flash-latest"
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+FALLBACK_MODEL = "gemini-3.5-flash"
 
 
 @app.get("/")
@@ -147,7 +147,7 @@ def extract_messages_and_text(input_data: Any) -> List[Dict[str, Any]]:
 
 async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL):
     """Consulta streaming a Google Gemini API con fallback automático."""
-    candidate_models = [model_name, "gemini-2.5-pro", "gemini-pro-latest", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"]
+    candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemma-4-31b-it"]
     models_to_try = list(dict.fromkeys(candidate_models))
 
     payload = {
@@ -198,7 +198,7 @@ async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction
 
 async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL) -> str:
     """Consulta síncrona a Google Gemini API con fallback automático."""
-    candidate_models = [model_name, "gemini-2.5-pro", "gemini-pro-latest", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"]
+    candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemma-4-31b-it"]
     models_to_try = list(dict.fromkeys(candidate_models))
 
     payload = {
