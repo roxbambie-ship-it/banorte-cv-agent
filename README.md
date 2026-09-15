@@ -1,4 +1,4 @@
-# 🏛️ Conversational CV Agent — Open Responses & A2A Architecture
+# Conversational CV Agent — Open Responses & A2A Architecture
 ### Reto Técnico: Especialista Sr. en Inteligencia Artificial e Innovación — Grupo Financiero Banorte
 **Candidata:** Aurea Regina Guzmán Montero  
 **Protocolo:** Open Responses v1 Specification & Agent-to-Agent (A2A) Discovery  
@@ -6,7 +6,7 @@
 
 ---
 
-## 📌 1. Arquitectura del Sistema y Decisiones Técnicas
+## 1. Arquitectura del Sistema y Decisiones Técnicas
 
 El objetivo de esta solución es implementar y operar un agente conversacional interactivo capaz de representar fielmente una trayectoria profesional en el sector financiero, cumpliendo con estándares modernos de interoperabilidad agéntica, resiliencia y baja latencia.
 
@@ -52,7 +52,7 @@ El objetivo de esta solución es implementar y operar un agente conversacional i
 
 ---
 
-## 📡 2. Especificación de Endpoints (API Reference)
+## 2. Especificación de Endpoints (API Reference)
 
 ### `GET /.well-known/agent-card.json`
 Manifiesto de auto-descubrimiento conforme a la especificación A2A.
@@ -80,7 +80,7 @@ Sondeo de salud (*liveness & readiness probe*) para orquestadores y balanceadore
 
 ---
 
-## 🛠️ 3. Ejecución y Desarrollo Local
+## 3. Ejecución y Desarrollo Local
 
 ### Requisitos Previos
 - Python 3.10+
@@ -115,7 +115,7 @@ docker run -p 8000:8000 -e GEMINI_API_KEY="tu_api_key" banorte-cv-agent
 
 ---
 
-## 🧪 4. Pruebas de Verificación y Contrato
+## 4. Pruebas de Verificación y Contrato
 
 Prueba de respuesta en modo JSON:
 ```bash
