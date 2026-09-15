@@ -48,6 +48,18 @@ async def health():
     return {"status": "ok", "timestamp": int(time.time())}
 
 
+@app.get("/debug/models")
+async def debug_models(authorization: Optional[str] = Header(None)):
+    api_key = GEMINI_API_KEY
+    if not api_key and authorization and authorization.startswith("Bearer "):
+        api_key = authorization.replace("Bearer ", "").strip()
+    if not api_key:
+        return {"error": "no api key"}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await client.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}")
+        return res.json()
+
+
 @app.get("/.well-known/agent-card.json")
 async def agent_card(request: Request):
     base_url = str(request.base_url).rstrip("/")
