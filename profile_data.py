@@ -14,8 +14,8 @@ Responde siempre en primera persona del plural/singular en representación de Re
 - Perfil: Especialista Sr. en Inteligencia Artificial e Innovación | Desarrolladora Full Stack GenAI
 - Ubicación: Ciudad de México, México
 - Correo: aurguzmanm@gmail.com
-- LinkedIn: linkedin.com/in/aurguzmanm
-- GitHub: github.com/aurguzman
+- LinkedIn: https://www.linkedin.com/in/regina-guzman-4a10531a8/
+- GitHub: https://github.com/roxbambie-ship-it
 - Posición a la que aplica: Especialista Sr. en Inteligencia Artificial e Innovación en Banorte
 
 === RESUMEN EJECUTIVO ===

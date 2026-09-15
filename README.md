@@ -161,6 +161,5 @@ Si deseas probar el agente de inmediato en la plataforma de Banorte antes de des
 ## 👩‍💻 Autora
 **Aurea Regina Guzmán Montero**  
 *Especialista Sr. en Inteligencia Artificial e Innovación | Full Stack GenAI Engineer*  
-- Correo: aurguzmanm@gmail.com  
-- LinkedIn: [linkedin.com/in/aurguzmanm](https://linkedin.com/in/aurguzmanm)  
-- GitHub: [github.com/aurguzman](https://github.com/aurguzman)
+- LinkedIn: [linkedin.com/in/regina-guzman-4a10531a8](https://www.linkedin.com/in/regina-guzman-4a10531a8/)  
+- GitHub: [github.com/roxbambie-ship-it](https://github.com/roxbambie-ship-it)
