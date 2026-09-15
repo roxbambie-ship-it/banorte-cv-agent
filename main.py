@@ -134,8 +134,8 @@ def extract_messages_and_text(input_data: Any) -> List[Dict[str, Any]]:
 
 
 async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL):
-    """Consulta streaming a Google Gemini API con fallback automático."""
-    candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemma-4-31b-it"]
+    """Consulta streaming a Google Gemini API con fallback rápido."""
+    candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash"]
     models_to_try = list(dict.fromkeys(candidate_models))
 
     payload = {
@@ -144,12 +144,12 @@ async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction
             "parts": [{"text": system_instruction}]
         },
         "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 2048
+            "temperature": 0.3,
+            "maxOutputTokens": 1024
         }
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=25.0) as client:
         success = False
         errors = []
         for current_model in models_to_try:
@@ -174,19 +174,19 @@ async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction
                         break
                     else:
                         error_body = await response.aread()
-                        err_detail = f"[{current_model} {response.status_code}]: {error_body.decode()[:120]}"
+                        err_detail = f"[{current_model} {response.status_code}]: {error_body.decode()[:100]}"
                         errors.append(err_detail)
                         logger.warning(err_detail)
             except Exception as ex:
-                errors.append(f"[{current_model} exc]: {str(ex)[:100]}")
+                errors.append(f"[{current_model} exc]: {str(ex)[:80]}")
         
         if not success:
             yield f"Error al consultar Gemini: {' | '.join(errors)}"
 
 
 async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL) -> str:
-    """Consulta síncrona a Google Gemini API con fallback automático."""
-    candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemma-4-31b-it"]
+    """Consulta síncrona a Google Gemini API con fallback rápido."""
+    candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash"]
     models_to_try = list(dict.fromkeys(candidate_models))
 
     payload = {
@@ -195,12 +195,12 @@ async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: 
             "parts": [{"text": system_instruction}]
         },
         "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 2048
+            "temperature": 0.3,
+            "maxOutputTokens": 1024
         }
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=25.0) as client:
         errors = []
         for current_model in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
