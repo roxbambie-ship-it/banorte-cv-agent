@@ -147,9 +147,8 @@ def extract_messages_and_text(input_data: Any) -> List[Dict[str, Any]]:
 
 async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL):
     """Consulta streaming a Google Gemini API con fallback automático."""
-    models_to_try = [model_name]
-    if FALLBACK_MODEL not in models_to_try:
-        models_to_try.append(FALLBACK_MODEL)
+    candidate_models = [model_name, "gemini-2.5-pro", "gemini-pro-latest", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"]
+    models_to_try = list(dict.fromkeys(candidate_models))
 
     payload = {
         "contents": contents,
@@ -164,40 +163,43 @@ async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         success = False
-        last_err = ""
+        errors = []
         for current_model in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:streamGenerateContent?alt=sse&key={api_key}"
-            async with client.stream("POST", url, json=payload) as response:
-                if response.status_code == 200:
-                    success = True
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            json_str = line[6:].strip()
-                            try:
-                                chunk = json.loads(json_str)
-                                candidates = chunk.get("candidates", [])
-                                if candidates:
-                                    parts = candidates[0].get("content", {}).get("parts", [])
-                                    for part in parts:
-                                        if "text" in part:
-                                            yield part["text"]
-                            except Exception as e:
-                                logger.warning(f"Error parsing Gemini SSE chunk: {e}")
-                    break
-                else:
-                    error_body = await response.aread()
-                    last_err = f"Gemini error {response.status_code} ({current_model}): {error_body.decode()}"
-                    logger.warning(last_err)
+            try:
+                async with client.stream("POST", url, json=payload) as response:
+                    if response.status_code == 200:
+                        success = True
+                        async for line in response.aiter_lines():
+                            if line.startswith("data: "):
+                                json_str = line[6:].strip()
+                                try:
+                                    chunk = json.loads(json_str)
+                                    candidates = chunk.get("candidates", [])
+                                    if candidates:
+                                        parts = candidates[0].get("content", {}).get("parts", [])
+                                        for part in parts:
+                                            if "text" in part:
+                                                yield part["text"]
+                                except Exception as e:
+                                    logger.warning(f"Error parsing Gemini SSE chunk: {e}")
+                        break
+                    else:
+                        error_body = await response.aread()
+                        err_detail = f"[{current_model} {response.status_code}]: {error_body.decode()[:120]}"
+                        errors.append(err_detail)
+                        logger.warning(err_detail)
+            except Exception as ex:
+                errors.append(f"[{current_model} exc]: {str(ex)[:100]}")
         
         if not success:
-            yield f"Error al consultar el modelo de Gemini: {last_err}"
+            yield f"Error al consultar Gemini: {' | '.join(errors)}"
 
 
 async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL) -> str:
     """Consulta síncrona a Google Gemini API con fallback automático."""
-    models_to_try = [model_name]
-    if FALLBACK_MODEL not in models_to_try:
-        models_to_try.append(FALLBACK_MODEL)
+    candidate_models = [model_name, "gemini-2.5-pro", "gemini-pro-latest", "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"]
+    models_to_try = list(dict.fromkeys(candidate_models))
 
     payload = {
         "contents": contents,
@@ -211,21 +213,25 @@ async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: 
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        last_err = ""
+        errors = []
         for current_model in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
-            res = await client.post(url, json=payload)
-            if res.status_code == 200:
-                data = res.json()
-                try:
-                    return data["candidates"][0]["content"]["parts"][0]["text"]
-                except Exception:
-                    return "No fue posible procesar la respuesta del modelo."
-            else:
-                last_err = f"Error {res.status_code} ({current_model}): {res.text[:200]}"
-                logger.warning(f"Gemini sync error: {last_err}")
+            try:
+                res = await client.post(url, json=payload)
+                if res.status_code == 200:
+                    data = res.json()
+                    try:
+                        return data["candidates"][0]["content"]["parts"][0]["text"]
+                    except Exception:
+                        return "No fue posible procesar la respuesta del modelo."
+                else:
+                    err_detail = f"[{current_model} {res.status_code}]: {res.text[:120]}"
+                    errors.append(err_detail)
+                    logger.warning(f"Gemini sync error: {err_detail}")
+            except Exception as ex:
+                errors.append(f"[{current_model} exc]: {str(ex)[:100]}")
         
-        return f"Error de Gemini: {last_err}"
+        return f"Error de Gemini: {' | '.join(errors)}"
 
 
 @app.post("/v1/responses")
