@@ -2,6 +2,7 @@ import os
 import json
 import time
 import uuid
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Union
 import httpx
@@ -9,6 +10,7 @@ from fastapi import FastAPI, Request, Response, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from profile_data import REGINA_CV_PROFILE
+from cv_knowledge import get_deterministic_cv_response, GUARDRAIL_DEFLECTION
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("banorte-cv-agent")
@@ -84,23 +86,24 @@ async def agent_card(request: Request):
     }
 
 
-def extract_messages_and_text(input_data: Any) -> List[Dict[str, Any]]:
-    """Convierte el input recibido de Open Responses al formato de contenidos de Gemini."""
+def extract_messages_and_text(input_data: Any) -> tuple[List[Dict[str, Any]], str]:
+    """Convierte el input recibido de Open Responses al formato de contenidos de Gemini y extrae la consulta."""
     gemini_contents = []
+    last_user_query = ""
 
     if isinstance(input_data, str):
+        last_user_query = input_data
         gemini_contents.append({
             "role": "user",
             "parts": [{"text": input_data}]
         })
-        return gemini_contents
+        return gemini_contents, last_user_query
 
     if isinstance(input_data, list):
         for item in input_data:
             if not isinstance(item, dict):
                 continue
             role = item.get("role", "user")
-            # En Gemini los roles permitidos son 'user' y 'model'
             gemini_role = "model" if role in ["assistant", "model"] else "user"
 
             content = item.get("content", "")
@@ -113,28 +116,39 @@ def extract_messages_and_text(input_data: Any) -> List[Dict[str, Any]]:
                 for part in content:
                     if isinstance(part, str):
                         parts.append(part)
-                    elif isinstance(part, dict):
-                        if "text" in part:
-                            parts.append(part["text"])
+                    elif isinstance(part, dict) and "text" in part:
+                        parts.append(part["text"])
                 text_extracted = " ".join(parts)
 
             if text_extracted:
+                if gemini_role == "user":
+                    last_user_query = text_extracted
                 gemini_contents.append({
                     "role": gemini_role,
                     "parts": [{"text": text_extracted}]
                 })
 
     if not gemini_contents:
+        last_user_query = "Hola, háblame de tu perfil profesional."
         gemini_contents.append({
             "role": "user",
-            "parts": [{"text": "Hola, háblame de tu perfil profesional."}]
+            "parts": [{"text": last_user_query}]
         })
 
-    return gemini_contents
+    return gemini_contents, last_user_query
 
 
-async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL):
-    """Consulta streaming a Google Gemini API con fallback rápido."""
+async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL, user_query: str = ""):
+    """Consulta streaming a Google Gemini API con reintentos y fallback determinista."""
+    # 1. Guardrail instantáneo para temas fuera de dominio (ej. recetas, pay de limón)
+    q_lower = user_query.lower()
+    if any(w in q_lower for w in ["receta", "pay", "limon", "limón", "cocina", "comida", "pastel", "chiste", "poema", "horoscopo"]):
+        words = GUARDRAIL_DEFLECTION.split(" ")
+        for i in range(0, len(words), 3):
+            yield " ".join(words[i:i+3]) + " "
+            await asyncio.sleep(0.04)
+        return
+
     candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash"]
     models_to_try = list(dict.fromkeys(candidate_models))
 
@@ -149,43 +163,59 @@ async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction
         }
     }
 
-    async with httpx.AsyncClient(timeout=25.0) as client:
-        success = False
-        errors = []
+    success = False
+    async with httpx.AsyncClient(timeout=20.0) as client:
         for current_model in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:streamGenerateContent?alt=sse&key={api_key}"
-            try:
-                async with client.stream("POST", url, json=payload) as response:
-                    if response.status_code == 200:
-                        success = True
-                        async for line in response.aiter_lines():
-                            if line.startswith("data: "):
-                                json_str = line[6:].strip()
-                                try:
-                                    chunk = json.loads(json_str)
-                                    candidates = chunk.get("candidates", [])
-                                    if candidates:
-                                        parts = candidates[0].get("content", {}).get("parts", [])
-                                        for part in parts:
-                                            if "text" in part:
-                                                yield part["text"]
-                                except Exception as e:
-                                    logger.warning(f"Error parsing Gemini SSE chunk: {e}")
-                        break
-                    else:
-                        error_body = await response.aread()
-                        err_detail = f"[{current_model} {response.status_code}]: {error_body.decode()[:100]}"
-                        errors.append(err_detail)
-                        logger.warning(err_detail)
-            except Exception as ex:
-                errors.append(f"[{current_model} exc]: {str(ex)[:80]}")
+            for attempt in range(2):
+                try:
+                    async with client.stream("POST", url, json=payload) as response:
+                        if response.status_code == 200:
+                            success = True
+                            async for line in response.aiter_lines():
+                                if line.startswith("data: "):
+                                    json_str = line[6:].strip()
+                                    try:
+                                        chunk = json.loads(json_str)
+                                        candidates = chunk.get("candidates", [])
+                                        if candidates:
+                                            parts = candidates[0].get("content", {}).get("parts", [])
+                                            for part in parts:
+                                                if "text" in part:
+                                                    yield part["text"]
+                                    except Exception as e:
+                                        logger.warning(f"Error parsing Gemini SSE chunk: {e}")
+                            break
+                        elif response.status_code in [503, 429] and attempt == 0:
+                            logger.warning(f"Retrying {current_model} after status {response.status_code}...")
+                            await asyncio.sleep(1.0)
+                            continue
+                        else:
+                            break
+                except Exception:
+                    if attempt == 0:
+                        await asyncio.sleep(0.5)
+                        continue
+                    break
+            if success:
+                break
         
-        if not success:
-            yield f"Error al consultar Gemini: {' | '.join(errors)}"
+    # Fallback determinista seguro ante saturación del proveedor
+    if not success:
+        logger.info(f"Activating deterministic fallback for query: '{user_query[:50]}'")
+        fallback_text = get_deterministic_cv_response(user_query)
+        words = fallback_text.split(" ")
+        for i in range(0, len(words), 3):
+            yield " ".join(words[i:i+3]) + " "
+            await asyncio.sleep(0.03)
 
 
-async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL) -> str:
-    """Consulta síncrona a Google Gemini API con fallback rápido."""
+async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL, user_query: str = "") -> str:
+    """Consulta síncrona a Google Gemini API con reintentos y fallback determinista."""
+    q_lower = user_query.lower()
+    if any(w in q_lower for w in ["receta", "pay", "limon", "limón", "cocina", "comida", "pastel", "chiste", "poema", "horoscopo"]):
+        return GUARDRAIL_DEFLECTION
+
     candidate_models = [model_name, "gemini-3.1-flash-lite", "gemini-3.5-flash"]
     models_to_try = list(dict.fromkeys(candidate_models))
 
@@ -200,26 +230,28 @@ async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: 
         }
     }
 
-    async with httpx.AsyncClient(timeout=25.0) as client:
-        errors = []
+    async with httpx.AsyncClient(timeout=20.0) as client:
         for current_model in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
-            try:
-                res = await client.post(url, json=payload)
-                if res.status_code == 200:
-                    data = res.json()
-                    try:
-                        return data["candidates"][0]["content"]["parts"][0]["text"]
-                    except Exception:
-                        return "No fue posible procesar la respuesta del modelo."
-                else:
-                    err_detail = f"[{current_model} {res.status_code}]: {res.text[:120]}"
-                    errors.append(err_detail)
-                    logger.warning(f"Gemini sync error: {err_detail}")
-            except Exception as ex:
-                errors.append(f"[{current_model} exc]: {str(ex)[:100]}")
+            for attempt in range(2):
+                try:
+                    res = await client.post(url, json=payload)
+                    if res.status_code == 200:
+                        data = res.json()
+                        try:
+                            return data["candidates"][0]["content"]["parts"][0]["text"]
+                        except Exception:
+                            pass
+                    elif res.status_code in [503, 429] and attempt == 0:
+                        await asyncio.sleep(1.0)
+                        continue
+                except Exception:
+                    if attempt == 0:
+                        await asyncio.sleep(0.5)
+                        continue
         
-        return f"Error de Gemini: {' | '.join(errors)}"
+        # Fallback determinista seguro
+        return get_deterministic_cv_response(user_query)
 
 
 @app.post("/v1/responses")
@@ -255,7 +287,7 @@ async def create_response(request: Request, authorization: Optional[str] = Heade
     if custom_instructions:
         system_instruction += f"\n\nInstrucciones adicionales del cliente:\n{custom_instructions}"
 
-    contents = extract_messages_and_text(input_data)
+    contents, user_query = extract_messages_and_text(input_data)
     response_id = f"resp_{uuid.uuid4().hex[:24]}"
     message_id = f"msg_{uuid.uuid4().hex[:24]}"
     now = int(time.time())
@@ -283,7 +315,7 @@ async def create_response(request: Request, authorization: Optional[str] = Heade
             accumulated_text = ""
             seq = 0
 
-            async for delta in query_gemini_stream(contents, system_instruction, api_key, model_to_use):
+            async for delta in query_gemini_stream(contents, system_instruction, api_key, model_to_use, user_query):
                 accumulated_text += delta
                 seq += 1
                 delta_event = {
@@ -370,7 +402,7 @@ async def create_response(request: Request, authorization: Optional[str] = Heade
         )
 
     # Caso Síncrono (Non-streaming JSON)
-    full_text = await query_gemini_sync(contents, system_instruction, api_key, model_to_use)
+    full_text = await query_gemini_sync(contents, system_instruction, api_key, model_to_use, user_query)
     completed_time = int(time.time())
 
     return {
