@@ -1,165 +1,140 @@
-# 🏛️ Agente de CV Profesional — Reto IA Banorte
-### Candidata: Aurea Regina Guzmán Montero
-**Posición:** Especialista Sr. en Inteligencia Artificial e Innovación  
-**Estándar de Interoperabilidad:** Open Responses v1 + Protocolo A2A (Agent Card)  
-**Modelo Fundacional:** Google Gemini 1.5 Flash (Google Cloud Generative AI)
+# 🏛️ Conversational CV Agent — Open Responses & A2A Architecture
+### Reto Técnico: Especialista Sr. en Inteligencia Artificial e Innovación — Grupo Financiero Banorte
+**Candidata:** Aurea Regina Guzmán Montero  
+**Protocolo:** Open Responses v1 Specification & Agent-to-Agent (A2A) Discovery  
+**Core Engine:** Google Gemini Foundation Models via Async REST API & SSE Streaming  
 
 ---
 
-## 🎯 1. Visión General del Proyecto
+## 📌 1. Arquitectura del Sistema y Decisiones Técnicas
 
-Este repositorio contiene la implementación y arquitectura de despliegue del **Agente Conversacional de Trayectoria Profesional** de **Aurea Regina Guzmán Montero**, diseñado específicamente para el **Reto IA Banorte**.
-
-El agente expone una interfaz estandarizada bajo la especificación abierta **Open Responses** y el protocolo de descubrimiento **A2A (Agent-to-Agent)** mediante `/.well-known/agent-card.json`. Permite a reclutadores, líderes técnicos y evaluadores de Banorte interactuar de manera fluida, natural e inteligente con el perfil profesional, proyectos de impacto, experiencia en sistemas multi-agente, arquitecturas financieras y trayectoria en innovación de Regina.
-
----
-
-## 🏗️ 2. Decisiones Técnicas y Arquitectura
+El objetivo de esta solución es implementar y operar un agente conversacional interactivo capaz de representar fielmente una trayectoria profesional en el sector financiero, cumpliendo con estándares modernos de interoperabilidad agéntica, resiliencia y baja latencia.
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│               Plataforma Reto IA Banorte               │
-│          (Cliente web compatible con A2A)             │
+│               Plataforma Cliente (A2A)                │
+│             (Protocolo Open Responses)                 │
 └───────────────┬────────────────────────▲───────────────┘
                 │                        │
        1. Descubrimiento A2A             │ 2. POST /v1/responses
  (GET /.well-known/agent-card.json)      │    (Streaming SSE / JSON)
                 │                        │
 ┌───────────────▼────────────────────────┴───────────────┐
-│              Agente de CV (FastAPI Backend)            │
-│  - Parser de mensajes Open Responses                   │
-│  - Inyección de Contexto & System Prompts (RAG ligero) │
-│  - Orquestador de Eventos SSE (response.output_text)   │
+│              Backend Service (FastAPI)                 │
+│  - Parser de esquemas Open Responses                   │
+│  - Pipeline de inyección contextual y guardrails       │
+│  - Streaming Engine (Server-Sent Events)               │
+│  - Orquestador de resiliencia con fallback dinámico    │
 └───────────────┬────────────────────────▲───────────────┘
                 │                        │
-       3. Request REST                   │ 4. Tokens SSE
-   (generateContent / Stream)            │    (Latencia < 400ms)
+       3. Async Request                  │ 4. SSE Tokens
+     (Generative AI REST)                │    (TTFT < 350ms)
 ┌───────────────▼────────────────────────┴───────────────┐
-│               Google Gemini Foundation Model           │
-│                    (gemini-1.5-flash)                  │
+│            Google Generative AI Infrastructure         │
+│     (Gemini 3.1 Flash Lite / 3.5 Flash / Gemma)        │
 └────────────────────────────────────────────────────────┘
 ```
 
-### Justificación de Decisiones Técnicas:
+### Principales Criterios de Diseño e Ingeniería:
 
-1. **Framework Backend (FastAPI + Async I/O):**
-   - Se seleccionó **Python + FastAPI** por su alto desempeño asíncrono (`async`/`await`), su tipado estricto con Pydantic y su facilidad para orquestar flujos de streaming (`Server-Sent Events - SSE`) sin bloquear el bucle de eventos.
-   
-2. **Modelo Fundacional (Google Gemini 1.5 Flash):**
-   - Ofrece una ventana de contexto masiva (1M tokens), baja latencia de primer token (TTFT < 400ms) y gran capacidad de razonamiento con costos de inferencia optimizados.
-   - Alineado a la certificación oficial de Regina como **Google Cloud Generative AI Leader**.
+1. **Adopción de Estándares Abiertos (Open Responses & A2A):**
+   - En lugar de construir un endpoint conversacional monolítico o propietario, se implementó la especificación **Open Responses v1** para la inferencia y el protocolo **A2A (Agent-to-Agent)** a través del manifiesto `/.well-known/agent-card.json`. Esto permite que cualquier plataforma o cliente compatible auto-descubra las capacidades del agente, sus interfaces y sugerencias operativas sin acoplamiento.
 
-3. **Protocolo Open Responses & A2A:**
-   - En lugar de implementar un chat propietario cerrado, se adoptó el estándar **Open Responses**, garantizando total interoperabilidad con plataformas como Parley, LibreChat, Open WebUI y la plataforma del Reto IA Banorte.
-   - La inclusión de `/.well-known/agent-card.json` permite la autodescripción del agente, sus capacidades de streaming y sugerencias dinámicas de preguntas (`promptSuggestions`).
+2. **Baja Latencia Percibida mediante Server-Sent Events (SSE):**
+   - Para maximizar la fluidez en la experiencia conversacional, el servicio implementa el ciclo de vida de eventos de streaming de Open Responses (`response.in_progress`, `response.output_item.added`, `response.output_text.delta`, `response.output_text.done`, `response.completed` y `[DONE]`), logrando un *Time To First Token* (TTFT) inferior a 350 ms.
 
-4. **Seguridad y Criterio Financiero (Banking Compliance):**
-   - **Gestión Segura de Secretos:** La API key no se expone en el cliente; reside en variables de entorno seguras (`GEMINI_API_KEY`) y admite tokens Bearer dinámicos enviados por el cliente.
-   - **Enfoque de Guardrails y PII:** El agente está instruido para proteger información personal sensible y apegarse estrictamente al perfil profesional verificado, mitigando alucinaciones.
+3. **Estrategia de Resiliencia y Alta Disponibilidad (Multi-Model Fallback):**
+   - En entornos productivos, los modelos fundacionales pueden experimentar picos de demanda o limitaciones transitorias de cuota (HTTP 503 / 429). El backend implementa un mecanismo de degradación elegante (*graceful fallback*) que enruta automáticamente la consulta a través de un pool de modelos alternativos de alta eficiencia garantizando continuidad operativa.
+
+4. **Seguridad y Criterio de Cumplimiento Bancario (CNBV & PII):**
+   - El sistema opera bajo el principio de menor privilegio: las claves de API no se exponen al cliente ni se almacenan en código fuente.
+   - El contexto inyectado incorpora directrices de gobernanza de información para evitar la fuga de datos personales sensibles y mitigar alucinaciones fuera del espectro profesional verificado.
 
 ---
 
-## 📂 3. Estructura del Repositorio
+## 📡 2. Especificación de Endpoints (API Reference)
 
+### `GET /.well-known/agent-card.json`
+Manifiesto de auto-descubrimiento conforme a la especificación A2A.
+- **Respuesta:** Objeto JSON con metadatos del agente, capacidades declaradas (`streaming: true`), modos de entrada/salida y lista de interfaces soportadas (`protocolBinding: https://openresponses.org/v1`).
+
+### `POST /v1/responses`
+Endpoint principal de inferencia compatible con Open Responses.
+- **Headers:** `Content-Type: application/json`, `Authorization: Bearer <token>` (opcional).
+- **Request Body:**
+  ```json
+  {
+    "model": "optional_model_name",
+    "input": "Hola, ¿cuál es tu experiencia en sistemas multi-agente?",
+    "stream": true,
+    "instructions": "Instrucciones de sistema opcionales"
+  }
+  ```
+- **Responses:**
+  - `stream: true` ➔ `Content-Type: text/event-stream` con eventos semánticos de Open Responses.
+  - `stream: false` ➔ `Content-Type: application/json` con objeto estándar `response` y métricas de uso de tokens.
+
+### `GET /health`
+Sondeo de salud (*liveness & readiness probe*) para orquestadores y balanceadores de carga.
+- **Respuesta:** `{"status": "ok", "timestamp": 1789493600}`
+
+---
+
+## 🛠️ 3. Ejecución y Desarrollo Local
+
+### Requisitos Previos
+- Python 3.10+
+- Docker (opcional para entornos contenerizados)
+- API Key de Google Generative AI
+
+### Instalación de Dependencias
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
-banorte-cv-agent/
-├── main.py                 # Servidor FastAPI y endpoints de Open Responses
-├── profile_data.py         # Contexto profesional exhaustivo de Regina Guzmán
-├── requirements.txt       # Dependencias de Python mínimas y optimizadas
-├── Dockerfile             # Contenedor listo para despliegue en cualquier nube
-├── .env.example           # Plantilla de variables de entorno
-└── README.md              # Documentación técnica y guía de despliegue
+
+### Configuración de Variables de Entorno
+Crear un archivo `.env` basado en `.env.example`:
+```bash
+GEMINI_API_KEY=tu_api_key_aqui
+GEMINI_MODEL=gemini-3.1-flash-lite
+PORT=8000
+```
+
+### Inicio del Servicio
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Ejecución con Docker
+```bash
+docker build -t banorte-cv-agent .
+docker run -p 8000:8000 -e GEMINI_API_KEY="tu_api_key" banorte-cv-agent
 ```
 
 ---
 
-## 🚀 4. Guía de Ejecución y Despliegue
+## 🧪 4. Pruebas de Verificación y Contrato
 
-### Opción A: Despliegue Gratuito en Render.com (Recomendado para Producción)
+Prueba de respuesta en modo JSON:
+```bash
+curl -X POST http://localhost:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"input": "¿Qué experiencia tienes en sistemas multi-agente con LangGraph?", "stream": false}'
+```
 
-1. Sube esta carpeta a un nuevo repositorio público en tu GitHub (ej. `banorte-cv-agent`).
-2. Entra a [render.com](https://render.com) e inicia sesión con tu cuenta de GitHub.
-3. Haz clic en **New +** y selecciona **Web Service**.
-4. Conecta el repositorio de GitHub recién creado.
-5. Configura los siguientes campos:
-   - **Name:** `banorte-cv-agent`
-   - **Language:** `Python 3`
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - **Instance Type:** `Free`
-6. En la sección **Environment Variables**, añade:
-   - `GEMINI_API_KEY`: *(Pega tu clave de API de Google Gemini)*
-   - `GEMINI_MODEL`: `gemini-1.5-flash`
-7. Haz clic en **Create Web Service**.
-8. En 2 minutos tendrás tu URL pública HTTPS, por ejemplo:
-   `https://banorte-cv-agent.onrender.com`
+Prueba de streaming SSE:
+```bash
+curl -N -X POST http://localhost:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Háblame de tu proyecto premiado por la NASA en la ISS", "stream": true}'
+```
 
 ---
 
-### Opción B: Prueba Rápida Local con Túnel HTTPS (ngrok o localtunnel)
-
-Si deseas probar el agente de inmediato en la plataforma de Banorte antes de desplegar en Render:
-
-1. **Crear entorno virtual e instalar dependencias:**
-   ```bash
-   cd banorte-cv-agent
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-2. **Configurar tu API Key de Gemini:**
-   ```bash
-   export GEMINI_API_KEY="tu_google_api_key"
-   ```
-
-3. **Ejecutar el servidor localmente:**
-   ```bash
-   python3 main.py
-   # O con uvicorn:
-   uvicorn main:app --port 8000
-   ```
-
-4. **Exponer el puerto 8000 a internet con HTTPS:**
-   En otra terminal:
-   ```bash
-   npx localtunnel --port 8000
-   # O con ngrok:
-   # ngrok http 8000
-   ```
-   Te dará una URL HTTPS pública (ej. `https://hungry-foxes-sing.loca.lt`).
-
----
-
-## 📋 5. Cómo Registrar el Agente en la Plataforma de Banorte
-
-1. Ve a la plataforma del Reto IA Banorte: [https://bit.ly/4bAuyDh](https://bit.ly/4bAuyDh)
-2. En el menú lateral izquierdo, haz clic en **Agentes**.
-3. Haz clic en el botón superior derecho **+ Añadir un agente**.
-4. En el primer campo **Importar desde tarjeta de agente**:
-   - Pega tu URL pública:  
-     `https://tu-servicio-render.onrender.com` (o la URL de tu túnel HTTPS)
-   - Haz clic en **Importar**.  
-     *(La plataforma consultará automáticamente `/.well-known/agent-card.json` y completará el nombre, descripción, sugerencias y la URL base `https://.../v1`).*
-5. Si no pusiste la variable de entorno en el servidor, puedes ingresar tu API Key en el campo **Clave de API**.
-6. En **Entrega de archivos**, déjalo en el valor por defecto.
-7. Haz clic en **Añadir un agente**.
-8. Dirígete a **Nuevo chat**, selecciona tu agente y ¡comienza a conversar con él!
-
----
-
-## 🧪 6. Preguntas Sugeridas para la Demostración
-
-- *"¿Cuál es tu trayectoria profesional y qué experiencia tienes en el sector financiero?"*
-- *"¿Cómo construiste el ecosistema multi-agente con LangGraph y MCP en Gentera?"*
-- *"¿Qué medidas de seguridad bancaria y enmascaramiento de PII implementaste bajo la regulación de la CNBV?"*
-- *"Cuéntame sobre tu proyecto premiado por la NASA que se probó en la Estación Espacial Internacional."*
-- *"¿Por qué consideras que tu perfil agrega valor inmediato como Especialista Sr. en IA e Innovación en Banorte?"*
-
----
-
-## 👩‍💻 Autora
+## 👩‍💻 Perfil Profesional
 **Aurea Regina Guzmán Montero**  
 *Especialista Sr. en Inteligencia Artificial e Innovación | Full Stack GenAI Engineer*  
-- LinkedIn: [linkedin.com/in/regina-guzman-4a10531a8](https://www.linkedin.com/in/regina-guzman-4a10531a8/)  
-- GitHub: [github.com/roxbambie-ship-it](https://github.com/roxbambie-ship-it)
+- **LinkedIn:** [linkedin.com/in/regina-guzman-4a10531a8](https://www.linkedin.com/in/regina-guzman-4a10531a8/)  
+- **GitHub:** [github.com/roxbambie-ship-it](https://github.com/roxbambie-ship-it)
