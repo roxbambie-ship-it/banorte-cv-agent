@@ -28,7 +28,8 @@ app.add_middleware(
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+FALLBACK_MODEL = "gemini-flash-latest"
 
 
 @app.get("/")
@@ -144,9 +145,12 @@ def extract_messages_and_text(input_data: Any) -> List[Dict[str, Any]]:
     return gemini_contents
 
 
-async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction: str, api_key: str):
-    """Consulta streaming a Google Gemini API."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{DEFAULT_MODEL}:streamGenerateContent?alt=sse&key={api_key}"
+async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL):
+    """Consulta streaming a Google Gemini API con fallback automático."""
+    models_to_try = [model_name]
+    if FALLBACK_MODEL not in models_to_try:
+        models_to_try.append(FALLBACK_MODEL)
+
     payload = {
         "contents": contents,
         "systemInstruction": {
@@ -159,54 +163,69 @@ async def query_gemini_stream(contents: List[Dict[str, Any]], system_instruction
     }
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        async with client.stream("POST", url, json=payload) as response:
-            if response.status_code != 200:
-                error_body = await response.aread()
-                err_msg = error_body.decode()
-                logger.error(f"Gemini API error {response.status_code}: {err_msg}")
-                yield f"Error al consultar el modelo de Gemini ({response.status_code}): {err_msg}"
-                return
-
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    json_str = line[6:].strip()
-                    try:
-                        chunk = json.loads(json_str)
-                        candidates = chunk.get("candidates", [])
-                        if candidates:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            for part in parts:
-                                if "text" in part:
-                                    yield part["text"]
-                    except Exception as e:
-                        logger.warning(f"Error parsing Gemini SSE chunk: {e}")
-
-
-async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: str, api_key: str) -> str:
-    """Consulta síncrona a Google Gemini API."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{DEFAULT_MODEL}:generateContent?key={api_key}"
-    payload = {
-        "contents": contents,
-        "systemInstruction": {
-            "parts": [{"text": system_instruction}]
-        },
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 2048
-        }
-    }
-
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        res = await client.post(url, json=payload)
-        if res.status_code != 200:
-            logger.error(f"Gemini error {res.status_code}: {res.text}")
-            return f"Error de Gemini ({res.status_code}): {res.text}"
+        success = False
+        last_err = ""
+        for current_model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:streamGenerateContent?alt=sse&key={api_key}"
+            async with client.stream("POST", url, json=payload) as response:
+                if response.status_code == 200:
+                    success = True
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            json_str = line[6:].strip()
+                            try:
+                                chunk = json.loads(json_str)
+                                candidates = chunk.get("candidates", [])
+                                if candidates:
+                                    parts = candidates[0].get("content", {}).get("parts", [])
+                                    for part in parts:
+                                        if "text" in part:
+                                            yield part["text"]
+                            except Exception as e:
+                                logger.warning(f"Error parsing Gemini SSE chunk: {e}")
+                    break
+                else:
+                    error_body = await response.aread()
+                    last_err = f"Gemini error {response.status_code} ({current_model}): {error_body.decode()}"
+                    logger.warning(last_err)
         
-        data = res.json()
-        try:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
-            return "No fue posible procesar la respuesta del modelo."
+        if not success:
+            yield f"Error al consultar el modelo de Gemini: {last_err}"
+
+
+async def query_gemini_sync(contents: List[Dict[str, Any]], system_instruction: str, api_key: str, model_name: str = DEFAULT_MODEL) -> str:
+    """Consulta síncrona a Google Gemini API con fallback automático."""
+    models_to_try = [model_name]
+    if FALLBACK_MODEL not in models_to_try:
+        models_to_try.append(FALLBACK_MODEL)
+
+    payload = {
+        "contents": contents,
+        "systemInstruction": {
+            "parts": [{"text": system_instruction}]
+        },
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 2048
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        last_err = ""
+        for current_model in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
+            res = await client.post(url, json=payload)
+            if res.status_code == 200:
+                data = res.json()
+                try:
+                    return data["candidates"][0]["content"]["parts"][0]["text"]
+                except Exception:
+                    return "No fue posible procesar la respuesta del modelo."
+            else:
+                last_err = f"Error {res.status_code} ({current_model}): {res.text[:200]}"
+                logger.warning(f"Gemini sync error: {last_err}")
+        
+        return f"Error de Gemini: {last_err}"
 
 
 @app.post("/v1/responses")
@@ -234,6 +253,8 @@ async def create_response(request: Request, authorization: Optional[str] = Heade
     input_data = body.get("input", "")
     stream_requested = body.get("stream", True)
     custom_instructions = body.get("instructions", "")
+    req_model = body.get("model")
+    model_to_use = req_model if (req_model and req_model not in ["default", "opcional", None]) else DEFAULT_MODEL
 
     # Combinar las instrucciones del sistema con el contexto del CV de Regina
     system_instruction = REGINA_CV_PROFILE
@@ -268,7 +289,7 @@ async def create_response(request: Request, authorization: Optional[str] = Heade
             accumulated_text = ""
             seq = 0
 
-            async for delta in query_gemini_stream(contents, system_instruction, api_key):
+            async for delta in query_gemini_stream(contents, system_instruction, api_key, model_to_use):
                 accumulated_text += delta
                 seq += 1
                 delta_event = {
@@ -355,7 +376,7 @@ async def create_response(request: Request, authorization: Optional[str] = Heade
         )
 
     # Caso Síncrono (Non-streaming JSON)
-    full_text = await query_gemini_sync(contents, system_instruction, api_key)
+    full_text = await query_gemini_sync(contents, system_instruction, api_key, model_to_use)
     completed_time = int(time.time())
 
     return {
@@ -364,7 +385,7 @@ async def create_response(request: Request, authorization: Optional[str] = Heade
         "created_at": now,
         "completed_at": completed_time,
         "status": "completed",
-        "model": DEFAULT_MODEL,
+        "model": model_to_use,
         "output": [
             {
                 "id": message_id,
